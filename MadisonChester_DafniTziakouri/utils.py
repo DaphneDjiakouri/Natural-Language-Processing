@@ -31,6 +31,22 @@ __stemmer = PorterStemmer()
 
 def remove_nan_questions(x_train: pd.DataFrame, y_train: pd.DataFrame) \
         -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Remove those samples which contain a NaN in at least one question.
+
+    Parameters
+    ----------
+    x_train: pd.DataFrame
+        Two columns dataframe containing the feature questions
+    y_train: pd.DataFrame
+        One column dataframe containing the labels
+
+    Returns
+    -------
+    dropped_x_train, dropped_y_train: Tuple[pd.DataFrame, pd.DataFrame]
+        Dataframes without NaN in any sample
+
+    """
     dropped_x_train = x_train.dropna(how="any")
     idx = set(x_train.index).intersection(dropped_x_train.index)
     dropped_y_train = y_train.loc[list(idx)]
@@ -43,6 +59,22 @@ def remove_nan_questions(x_train: pd.DataFrame, y_train: pd.DataFrame) \
 # ##################################################################
 
 def _horizontal_stacking(x_q1: csr_matrix, x_q2: csr_matrix) -> csr_matrix:
+    """
+    Stack horizontally the 2 passed feature matrices
+
+    Parameters
+    ----------
+    x_q1: csr_matrix
+        Feature (sparse) matrix (each row is the feature vector
+        obtained from the first question)
+    x_q2: csr_matrix
+        Feature (sparse) matrix of the second question
+
+    Returns
+    -------
+    Feature (sparse) matrix with the questions merged
+
+    """
     return hstack((x_q1, x_q2))
 
 
@@ -97,6 +129,24 @@ def _to_british(text: str) -> str:
 
 
 def _length_ratio(q1_w: List[str], q2_w: List[str]) -> float:
+    """
+    Return the question's length ratio (the first with respect the second).
+    If any of them has 0 length (after preprocessing), the retrieved ratio
+    is 0.
+
+    Parameters
+    ----------
+    q1_w: List[str]
+        List of words contained in the first (preprocessed) question's samples
+    q2_w: List[str]
+        List of words contained in the second (preprocessed) question's samples
+
+    Returns
+    -------
+    ratio: float
+        Question's length ratio
+
+    """
     if any([len(_q) for _q in (q1_w, q2_w)]):
         return 0.
     return len(q1_w) / len(q2_w)
@@ -105,8 +155,21 @@ def _length_ratio(q1_w: List[str], q2_w: List[str]) -> float:
 def _get_coincident_words_ratio(
         q1_w: List[str], q2_w: List[str]) -> float:
     """
-    Count the ratio of coincident words with respect the total
-    number of them.
+    Count the ratio of coincident words with respect the total number of them.
+    This is applied at a sample level.
+
+    Parameters
+    ----------
+    q1_w: List[str]
+        List of words contained in the first (preprocessed) question's samples
+    q2_w: List[str]
+        List of words contained in the second (preprocessed) question's samples
+
+    Returns
+    -------
+    ratio: float
+        Ratio of coincident words (between the 2 questions)
+
     """
     unique_q1, unique_q2 = set(q1_w), set(q2_w)
     return 2 * len(unique_q1 & unique_q2) / (len(unique_q1) + len(unique_q2))
@@ -315,13 +378,13 @@ class FeatureGenerator:
                    extra_features: Tuple[str] = 'all') -> None:
         self.__class__(exts, aggs, extra_features)
 
-    def fit(self, questions_df, y=None):
+    def fit(self, questions_df: pd.DataFrame, y: pd.DataFrame = None):
         self.extractors = [ext if name.startswith('spacy') else ext.fit(
             questions_df.values.flatten()) for name, ext in zip(
             self.extractor_names, self.extractors)]
         return self
 
-    def transform(self, questions_df, y=None):
+    def transform(self, questions_df: pd.DataFrame, y: pd.DataFrame = None):
         agg_features = []
         for name, ext, agg in zip(self.extractor_names, self.extractors,
                                   self.aggregators):
@@ -377,7 +440,7 @@ class ExtraFeaturesCreator:
             self.features_functions = {
                 _n: _SUPPORTED_EXTRA_FEATURES[_n] for _n in features_to_add}
 
-    def transform(self, questions_df) -> np.ndarray:
+    def transform(self, questions_df: pd.DataFrame) -> np.ndarray:
         if len(self.features_functions) == 0:
             raise ValueError("There is no extra features to be aggregated")
 
