@@ -419,12 +419,12 @@ def _get_extractor(ext: str):
     if ext in ['spacy_small', 'spacy_medium']:
         _spacy_version: str = _SUPPORTED_EXTRACTORS[ext]
         try:
-            import spacy
+            import spacy # type: ignore
             spacy.load(_spacy_version)
         except OSError:
             os.system(f'python -m spacy download {_spacy_version}')
         finally:
-            import spacy
+            import spacy # type: ignore
             return spacy.load(_spacy_version)
     else:
         return _SUPPORTED_EXTRACTORS[ext]
