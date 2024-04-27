@@ -1,21 +1,17 @@
-import itertools
+import re
 import os
-from typing import Dict, Callable, Iterable, Tuple, List, Union
-
 import nltk
+import itertools
 import numpy as np
 import pandas as pd
 from scipy.sparse import hstack
+from functools import lru_cache
+from nltk.corpus import stopwords
 from scipy.sparse.csr import csr_matrix
 from nltk import PorterStemmer, word_tokenize
-from nltk.corpus import stopwords
+from typing import Dict, Callable, Iterable, Tuple, List, Union
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-# import spacy
-import re
-from functools import lru_cache
 
-
-# we may need to download nltk & spacy data locally...
 if not os.path.isdir(f"{os.path.expanduser('~')}/nltk_data/corpora/stopwords"):
     nltk.download('stopwords')
 
@@ -24,79 +20,30 @@ if not os.path.isdir(f"{os.path.expanduser('~')}/nltk_data/corpora/punkt"):
 
 __stemmer = PorterStemmer()
 
+# auxilliary function
 
-# ##################################################################
-# AUXILIARY FUNCTIONS
-# ##################################################################
-
+# remove samples that contain a NaN in at least one question
 def remove_nan_questions(x_train: pd.DataFrame, y_train: pd.DataFrame) \
         -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Remove those samples which contain a NaN in at least one question.
-
-    Parameters
-    ----------
-    x_train: pd.DataFrame
-        Two columns dataframe containing the feature questions
-    y_train: pd.DataFrame
-        One column dataframe containing the labels
-
-    Returns
-    -------
-    dropped_x_train, dropped_y_train: Tuple[pd.DataFrame, pd.DataFrame]
-        Dataframes without NaN in any sample
-
-    """
     dropped_x_train = x_train.dropna(how="any")
     idx = set(x_train.index).intersection(dropped_x_train.index)
     dropped_y_train = y_train.loc[list(idx)]
-
     return dropped_x_train, dropped_y_train
 
+# aggregating feature vectors 
 
-# ##################################################################
-# FUNCTIONS TO AGGREGATE FEATURE VECTORS
-# ##################################################################
-
+# horizontally stack the feature matrices
 def _horizontal_stacking(x_q1: csr_matrix, x_q2: csr_matrix) -> csr_matrix:
-    """
-    Stack horizontally the 2 passed feature matrices
-
-    Parameters
-    ----------
-    x_q1: csr_matrix
-        Feature (sparse) matrix (each row is the feature vector
-        obtained from the first question)
-    x_q2: csr_matrix
-        Feature (sparse) matrix of the second question
-
-    Returns
-    -------
-    Feature (sparse) matrix with the questions merged
-
-    """
     return hstack((x_q1, x_q2))
 
-
-# TODO: the output did not fit in memory in either case: DEPRECATED
 def _cosine_similarity(x_q1: csr_matrix, x_q2: csr_matrix) -> csr_matrix:
-    # from sklearn.preprocessing import normalize
-    # x_q1_normed = normalize(x_q1.tocsc(), axis=1)
-    # x_q2_normed = normalize(x_q2.tocsc(), axis=1)
-    # _cos_sim = x_q1_normed * x_q2_normed.T
     _cos_sim = x_q1.tocsr() * x_q2.tocsr().T
-    # from sklearn.metrics.pairwise import cosine_similarity
-    # _cos_sim = cosine_similarity(x_q1, x_q2, dense_output=False)
     return _cos_sim
-
 
 def _abs_difference(x_q1: csr_matrix, x_q2: csr_matrix) -> csr_matrix:
     return np.abs(x_q1 - x_q2)
 
-
-# ##################################################################
-# FUNCTIONS TO PREPROCESS QUESTIONS
-# ##################################################################
+# preprocessing questions
 
 def _remove_punctuation(text: str):
     symbols = "!\"#$%&()*+-./:;<=>?@[\]^_`{|}~\n"
@@ -106,14 +53,11 @@ def _remove_punctuation(text: str):
     text = np.char.replace(text, ',', '')
     return text
 
-
 def _remove_stop_words(text: str, stop_words: Iterable[str]) -> str:
     return ' '.join([word for word in text.split() if word not in stop_words])
 
-
 def _stemming(text: str) -> str:
     return " ".join([__stemmer.stem(w) for w in word_tokenize(text)])
-
 
 def _to_british(text: str) -> str:
     text = re.sub(r"(...)our\b", r"\1or", text)
@@ -122,97 +66,45 @@ def _to_british(text: str) -> str:
     text = re.sub(r"ogue\b", "og", text)
     return text
 
+# generating extra features 
 
-# ##################################################################
-# FUNCTIONS TO GENERATE EXTRA FEATURES
-# ##################################################################
-
-
+# return the question's length ratio (first with respect to the second)
 def _length_ratio(q1_w: List[str], q2_w: List[str]) -> float:
-    """
-    Return the question's length ratio (the first with respect the second).
-    If any of them has 0 length (after preprocessing), the retrieved ratio
-    is 0.
-
-    Parameters
-    ----------
-    q1_w: List[str]
-        List of words contained in the first (preprocessed) question's samples
-    q2_w: List[str]
-        List of words contained in the second (preprocessed) question's samples
-
-    Returns
-    -------
-    ratio: float
-        Question's length ratio
-
-    """
     if any([len(_q) for _q in (q1_w, q2_w)]):
         return 0.
     return len(q1_w) / len(q2_w)
 
-
-def _get_coincident_words_ratio(
-        q1_w: List[str], q2_w: List[str]) -> float:
-    """
-    Count the ratio of coincident words with respect the total number of them.
-    This is applied at a sample level.
-
-    Parameters
-    ----------
-    q1_w: List[str]
-        List of words contained in the first (preprocessed) question's samples
-    q2_w: List[str]
-        List of words contained in the second (preprocessed) question's samples
-
-    Returns
-    -------
-    ratio: float
-        Ratio of coincident words (between the 2 questions)
-
-    """
+# count the ratio of coincident words with respect the total number 
+def _get_coincident_words_ratio(q1_w: List[str], q2_w: List[str]) -> float:
     unique_q1, unique_q2 = set(q1_w), set(q2_w)
     return 2 * len(unique_q1 & unique_q2) / (len(unique_q1) + len(unique_q2))
 
-
-def _coincident_keyword(
-        q1_w: List[str], q2_w: List[str]) -> float:
-    """
-    Identify whether the 2 questions have coincident
-    keywords and returns a normalized value proportional 
-    to this ratio
-    """
+# identify whether the 2 questions have coincident keywords and return a proportional normalized value
+def _coincident_keyword(q1_w: List[str], q2_w: List[str]) -> float:
+    
     keywords = {"What", "what", "Who", "who", "Which", "which", "Where",
                 "where", "Why", "why", "When", "when", "How", "how", "Whose",
                 "whose", "Can", "can"}
+    
     unique_q1, unique_q2 = set(q1_w), set(q2_w)
     keywords_q1 = unique_q1 & keywords 
     keywords_q2 = unique_q2 & keywords
-    
+
     if len(keywords_q1) == 0 and len(keywords_q2) == 0:
         denominator = 1
     else:
         denominator = (len(keywords_q1) + len(keywords_q2))
+
     return 2*len(keywords_q1 & keywords_q2)/denominator
 
 
-def _jaccard_distance(
-        q1_w: List[str], q2_w: List[str]) -> float:
-    """
-    Implement the Jaccard distance between two questions
-    """
+def _jaccard_distance(q1_w: List[str], q2_w: List[str]) -> float:
     unique_q1, unique_q2 = set(q1_w), set(q2_w)
     return 1 - len(unique_q1 & unique_q2) / len(unique_q1.union(unique_q2))
 
 
-def _levenshtein_sim_w(
-        q1_w: List[str], q2_w: List[str]) -> float:
-    """
-    Implements a modified Levenshtein Distance taking as elements
-    all the words within the question
-    """
-    
-    @lru_cache(None)  # for memorization
+def _levenshtein_sim_w(q1_w: List[str], q2_w: List[str]) -> float:
+    @lru_cache(None)  
     def min_dist(s1, s2):
 
         if s1 == len(q1_w) or s2 == len(q2_w):
@@ -230,39 +122,7 @@ def _levenshtein_sim_w(
 
     return min_dist(0, 0)
 
-
-# TODO: maximum recursion depth reached when calling the function: DEPRECATED
-def _levenshtein_sim_l(
-        q1_w: List[str], q2_w: List[str]) -> float:
-    """
-    Implements Regular Levenshtein Distance
-    for all the letters from each word within the question
-    """
-    q1_w = " ".join(q1_w)
-    q2_w = " ".join(q2_w)
-    
-    @lru_cache(None)  # for memorization
-    def min_dist(s1, s2):
-
-        if s1 == len(q1_w) or s2 == len(q2_w):
-            return len(q1_w) - s1 + len(q2_w) - s2
-
-        # no change required
-        if q1_w[s1] == q2_w[s2]:
-            return min_dist(s1 + 1, s2 + 1)
-
-        return 1 + min(
-            min_dist(s1, s2 + 1),      # insert character
-            min_dist(s1 + 1, s2),      # delete character
-            min_dist(s1 + 1, s2 + 1),  # replace character
-        )
-
-    return min_dist(0, 0)
-
-
-# ##################################################################
-# GLOBAL VARS CLASSES (defined extractors and aggregators)
-# ##################################################################
+# extractors and aggregators 
 
 _SUPPORTED_EXTRACTORS: dict = {
     'cv': CountVectorizer(
@@ -271,14 +131,10 @@ _SUPPORTED_EXTRACTORS: dict = {
         ngram_range=(1, 2), lowercase=False),
     'tf_idf': TfidfVectorizer(ngram_range=(1, 1), lowercase=False),
     'tf_idf_2w': TfidfVectorizer(ngram_range=(1, 2), lowercase=False),
-    # spacy: DISMISSED to reduce conda environment size and training loads
-    # 'spacy_small': 'en_core_web_sm',
-    # 'spacy_medium': 'en_core_web_md',
 }
 
 _SUPPORTED_AGGREGATORS: Dict[str, Callable] = {
     'stack': _horizontal_stacking,
-    # 'cosine': _cosine_similarity,
     'absolute': _abs_difference,
 }
 
@@ -287,12 +143,10 @@ _SUPPORTED_EXTRA_FEATURES: Dict[str, Callable] = {
     'coincident_keyword': _coincident_keyword,
     'jaccard': _jaccard_distance,
     'levenshtein_w': _levenshtein_sim_w,
-    # 'levenshtein_l': _levenshtein_sim_l,
     'length_ratio': _length_ratio,
 }
 
-
-# PIPELINES CLASSES
+# pipeline classes
 
 class TextPreprocessor:
     def __init__(self,
@@ -319,22 +173,14 @@ class TextPreprocessor:
         return self
 
     def transform(self, df, y=None):
-        """
-        This method takes a pandas DataFrame with two columns as input
-        and performs several operations according to the initialization.
-        These can be:
-         - lower case transformation
-        - removal of stop words
-        - removal of punctuation signs
 
-        before returning the preprocessed text in a new DataFrame.
-        """
         df_prep = df.copy()
 
         # preprocessing
         if self.to_lower:
             df_prep['question1'] = df_prep['question1'].str.lower()
             df_prep['question2'] = df_prep['question2'].str.lower()
+
         # apply functions to the 'text' column of the DataFrame
         if self.remove_stop_words:
             df_prep.loc[:, 'question1'] = df_prep['question1'].apply(
@@ -358,7 +204,6 @@ class TextPreprocessor:
                 lambda _t: _stemming(_t))
 
         return df_prep
-
 
 class FeatureGenerator:
     def __init__(self,
@@ -388,11 +233,11 @@ class FeatureGenerator:
         agg_features = []
         for name, ext, agg in zip(self.extractor_names, self.extractors,
                                   self.aggregators):
-            # we apply the extractor to each question
+            # apply the extractor to each question
             if name.startswith('spacy'):
                 print("Using spacy word embedding: please WAIT, "
                       "this may take some time")
-                # then we use a spacy embedding
+                # use a spacy embedding
                 x_q1 = questions_df.iloc[:, 0].apply(
                     lambda x: ext(x).vector)
                 x_q2 = questions_df.iloc[:, 1].apply(
@@ -402,18 +247,17 @@ class FeatureGenerator:
                 x_q1 = ext.transform(questions_df.iloc[:, 0])
                 x_q2 = ext.transform(questions_df.iloc[:, 1])
 
-            # and we aggregate them
+            # aggregate them
             x_agg = agg(x_q1, x_q2)
             agg_features.append(x_agg)
 
         if len(self.extra_features_creator.features_functions) != 0:
-            # in parallel, we compute the extra features
+            # compute the extra features
             x_extra: np.ndarray = self.extra_features_creator.transform(
                 questions_df)
-            # finally, we merge them
+            # merge them
             return hstack((hstack(agg_features), x_extra))
         return hstack(agg_features)
-
 
 def _get_extractor(ext: str):
     if ext in ['spacy_small', 'spacy_medium']:
@@ -428,7 +272,6 @@ def _get_extractor(ext: str):
             return spacy.load(_spacy_version)
     else:
         return _SUPPORTED_EXTRACTORS[ext]
-
 
 class ExtraFeaturesCreator:
     def __init__(self, features_to_add: Union[Tuple, str]) -> None:
@@ -454,18 +297,10 @@ class ExtraFeaturesCreator:
 
         return extra_features.values
 
-
-# ##################################################################
-# Grid Search functions
-# ##################################################################
+# grid search functions
 
 def get_param_grid(name: str, seed: int):
-    """Returns param grid depending on model name.
-
-    Args:
-        name: model name.
-        seed: random seed.
-    """
+    
     preprocessor_grid = {
         "preprocessor__remove_stop_words": [True, False],
         "preprocessor__remove_punctuation": [True, False],
@@ -473,6 +308,7 @@ def get_param_grid(name: str, seed: int):
         "preprocessor__apply_stemming": [True, False],
         "preprocessor__british": [True, False],
     }
+
     exts = list(_SUPPORTED_AGGREGATORS.keys())
     aggs = list(_SUPPORTED_AGGREGATORS.keys())
     combinations_exts = [list(comb) for i in range(
