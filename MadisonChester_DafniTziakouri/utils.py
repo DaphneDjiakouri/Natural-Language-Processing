@@ -359,13 +359,6 @@ def get_param_grid(name: str, seed: int):
             "classifier__learning_rate": [0.01, 0.1, 1],
             "classifier__algorithm": ["SAMME", "SAMME.R"],
         },
-        "XGBClassifier": {
-            "classifier__random_state": [seed],
-            "classifier__n_estimators": [50, 100, 200],
-            "classifier__max_depth": [3, 5, 10],
-            "classifier__learning_rate": [0.01, 0.1, 1],
-            "classifier__subsample": [0.5, 0.8, 1.0],
-        },
         "GaussianNB": {},
         "BernoulliNB": {},
         "LinearDiscriminantAnalysis": {
@@ -379,15 +372,6 @@ def get_param_grid(name: str, seed: int):
             "classifier__reg_param": [0.0, 0.1, 0.5, 1.0],
             "classifier__store_covariance": [True, False],
             "classifier__tol": [1e-4, 1e-3, 1e-2],
-        },
-        "CatBoostClassifier": {
-            "classifier__random_state": [seed],
-            "classifier__iterations": [500, 1000],
-            "classifier__learning_rate": [0.01, 0.05, 0.1],
-            "classifier__depth": [4, 6, 8],
-            "classifier__l2_leaf_reg": [1, 3, 5],
-            "classifier__border_count": [32, 64, 128],
-            "classifier__loss_function": ["Logloss", "CrossEntropy"],
         },
     }
     return preprocessor_grid | generator_grid | classifier_grid[name]
